@@ -1,0 +1,645 @@
+<html>
+    <head>
+        <style>
+            .bordered-table {
+                border: 1px solid black;
+            }
+
+            .station-width {
+                width: 100px;
+            }
+
+            td {
+                vertical-align: top;
+            }
+        </style>
+    </head>
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+
+    <script>
+        class Transfer {
+            constructor(patient, nurse, orderlies) {
+                this.patient = patient;
+                this.nurse = nurse;
+                this.orderlies = orderlies;
+            }
+        }
+
+        class Frame {
+            constructor(
+                admission_patient,
+                admission_nurse,
+                admission_orderlies,
+                wait_triage_transfers,
+                triage_patient,
+                triage_nurse,
+                triage_orderlies,
+                wait_treatment_transfers,
+                treatment_status,
+                treatment_specialist,
+                treatment_patient,
+                treatment_nurse,
+                treatment_orderlies,
+                wait_discharge_transfers,
+                discharge_patient,
+                discharge_nurse,
+                discharge_orderlies,
+                available_nurses,
+                available_orderlies
+            ) {
+                this.admission_patient = admission_patient;
+                this.admission_nurse = admission_nurse;
+                this.admission_orderlies = admission_orderlies;
+                this.wait_triage_transfers = wait_triage_transfers;
+                this.triage_patient = triage_patient;
+                this.triage_nurse = triage_nurse;
+                this.triage_orderlies = triage_orderlies;
+                this.wait_treatment_transfers = wait_treatment_transfers;
+                this.treatment_status = treatment_status;
+                this.treatment_specialist = treatment_specialist;
+                this.treatment_patient = treatment_patient;
+                this.treatment_nurse = treatment_nurse;
+                this.treatment_orderlies = treatment_orderlies;
+                this.wait_discharge_transfers = wait_discharge_transfers;
+                this.discharge_patient = discharge_patient;
+                this.discharge_nurse = discharge_nurse;
+                this.discharge_orderlies = discharge_orderlies;
+                this.available_nurses = available_nurses;
+                this.available_orderlies = available_orderlies;
+            }
+
+            duplicate() {
+                return new Frame(
+                    this.admission_patient,
+                    this.admission_nurse,
+                    this.admission_orderlies,
+                    this.wait_triage_transfers.slice(),
+                    this.triage_patient,
+                    this.triage_nurse,
+                    this.triage_orderlies,
+                    this.wait_treatment_transfers.slice(),
+                    this.treatment_status,
+                    this.treatment_specialist,
+                    this.treatment_patient,
+                    this.treatment_nurse,
+                    this.treatment_orderlies,
+                    this.wait_discharge_transfers.slice(),
+                    this.discharge_patient,
+                    this.discharge_nurse,
+                    this.discharge_orderlies,
+                    this.available_nurses.slice(),
+                    this.available_orderlies
+                )
+            }
+        }
+
+        var curr_step = 0;
+        var transfer_orderlies_count = 0;
+        var frames = [];
+        var steps = [];
+
+        function on_start() {
+            var initial_nurse_count = parseInt($('#initial_nurse_input').val(), 10);
+            var initial_orderlies_count = parseInt($('#initial_orderlies_input').val(), 10);
+            transfer_orderlies_count = parseInt($('#transfer_orderlies_input').val(), 10);
+            frames = [];
+
+            steps = $("#trace_textarea").val().trim().split("\n");
+            validate_prev_next_buttons();
+
+            curr_step = 0;
+            $("#step_table").empty();
+            for (var i=0; i<steps.length; i++) {
+                $("#step_table").append("<tr class='step_cell'><td>" + (i+1) + "</td><td>" + steps[i] + "</td></tr>");
+            }
+
+            var nurses = [];
+            for(var i=0; i<initial_nurse_count; i++) {
+                nurses.push(`Nurse ${i+1}`);
+            }
+            frames.push(new Frame(
+                null,
+                null,
+                null,
+                [],
+                null,
+                null,
+                null,
+                [],
+                null,
+                null,
+                null,
+                null,
+                null,
+                [],
+                null,
+                null,
+                null,
+                nurses,
+                initial_orderlies_count
+            ));
+            draw_frame();
+        }
+
+        function on_prev() {
+            if (curr_step == 0) return;
+
+            curr_step -= 1;
+
+            $(".step_cell").css("background-color", "");
+            $(".step_cell").eq(curr_step - 1).css("background-color", "yellow");
+            
+            draw_frame();
+            validate_prev_next_buttons();
+        }
+
+        function on_next() {
+            if (curr_step >= steps.length) return;
+
+            if (curr_step + 1 >= frames.length) {
+                createFrameFromStep(curr_step);
+            }
+
+            curr_step += 1;
+
+            $(".step_cell").css("background-color", "");
+            $(".step_cell").eq(curr_step - 1).css("background-color", "yellow");
+            
+            draw_frame();
+            validate_prev_next_buttons();
+        }
+
+        function validate_prev_next_buttons() {
+            $("#prev_button").prop('disabled', curr_step == 0);
+            $("#next_button").prop('disabled', curr_step >= steps.length);
+        }
+
+        function createFrameFromStep(step_number) {
+            var step = steps[step_number];
+            var newFrame = frames[step_number].duplicate();
+            frames.push(newFrame);
+
+            if (step.includes("admitted to ED.")) {
+                newFrame.admission_patient = step.substring(0, step.indexOf(" admitted to ED."));
+            }
+            else if (step.includes("allocated to")) {
+                var nurse = step.substring(step.indexOf("allocated to ") + "allocated to ".length);
+                nurse = nurse.substring(0, nurse.length - 1);
+                newFrame.admission_nurse = nurse;
+
+                for (var i=0; i<newFrame.available_nurses.length; i++) {
+                    if(newFrame.available_nurses[i] === nurse) {
+                        newFrame.available_nurses.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+            else if (step.includes("recruits")) {
+                var nurse = step.substring(0, step.indexOf(" recruits"));
+                var orderlies = `Ord x ${transfer_orderlies_count}`;
+
+                if (newFrame.admission_nurse === nurse)
+                    newFrame.admission_orderlies = orderlies;
+                else if (newFrame.triage_nurse === nurse)
+                    newFrame.triage_orderlies = orderlies;
+                else if (newFrame.treatment_nurse === nurse)
+                    newFrame.treatment_orderlies = orderlies;
+
+                newFrame.available_orderlies -= transfer_orderlies_count;
+            }
+            else if (step.includes("leaves Foyer")) {
+                newFrame.wait_triage_transfers.push(new Transfer(
+                    newFrame.admission_patient,
+                    newFrame.admission_nurse,
+                    newFrame.admission_orderlies
+                ));
+
+                newFrame.admission_patient = null;
+                newFrame.admission_nurse = null;
+                newFrame.admission_orderlies = null;
+            }
+            else if (step.includes("enters triage")) {
+                var patient = step.substring(0, step.indexOf(" enters triage"));
+
+                for (var i=0; i<newFrame.wait_triage_transfers.length; i++) {
+                    if(newFrame.wait_triage_transfers[i].patient === patient) {
+                        newFrame.triage_patient = newFrame.wait_triage_transfers[i].patient;
+                        newFrame.triage_nurse = newFrame.wait_triage_transfers[i].nurse;
+                        newFrame.triage_orderlies = newFrame.wait_triage_transfers[i].orderlies;
+
+                        newFrame.wait_triage_transfers.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+            else if (step.includes("releases") && step.includes("orderlies")) {
+                var nurse = step.substring(0, step.indexOf(" releases"));
+
+                if (newFrame.triage_nurse === nurse)
+                    newFrame.triage_orderlies = null;
+                else if (newFrame.treatment_nurse === nurse)
+                    newFrame.treatment_orderlies = null;
+                else if (newFrame.discharge_nurse === nurse)
+                    newFrame.discharge_orderlies = null;
+
+                newFrame.available_orderlies += transfer_orderlies_count;
+            }
+            else if (step.includes("recruits")) {
+                var nurse = step.substring(0, step.indexOf(" recruits"));
+                var orderlies = `Ord x ${transfer_orderlies_count}`;
+
+                if (newFrame.admission_nurse === nurse)
+                    newFrame.admission_orderlies = orderlies;
+                else if (newFrame.triage_nurse === nurse)
+                    newFrame.triage_orderlies = orderlies;
+                else if (newFrame.treatment_nurse === nurse)
+                    newFrame.treatment_orderlies = orderlies;
+
+                newFrame.available_orderlies -= transfer_orderlies_count;
+            }
+            else if (step.includes("leaves triage")) {
+                if (step.includes("(S)")) {
+                    newFrame.wait_treatment_transfers.push(new Transfer(
+                        newFrame.triage_patient,
+                        newFrame.triage_nurse,
+                        newFrame.triage_orderlies
+                    ));
+                }
+                else {
+                    newFrame.wait_discharge_transfers.push(new Transfer(
+                        newFrame.triage_patient,
+                        newFrame.triage_nurse,
+                        newFrame.triage_orderlies
+                    ));
+                }
+
+                newFrame.triage_patient = null;
+                newFrame.triage_nurse = null;
+                newFrame.triage_orderlies = null;
+            }
+            else if (step.includes(" enters treatment room.") && step.includes("Specialist") == false) {
+                var patient = step.substring(0, step.indexOf(" enters treatment room."));
+
+                for (var i=0; i<newFrame.wait_treatment_transfers.length; i++) {
+                    if(newFrame.wait_treatment_transfers[i].patient === patient) {
+                        newFrame.treatment_patient = newFrame.wait_treatment_transfers[i].patient;
+                        newFrame.treatment_nurse = newFrame.wait_treatment_transfers[i].nurse;
+                        newFrame.treatment_orderlies = newFrame.wait_treatment_transfers[i].orderlies;
+
+                        newFrame.wait_treatment_transfers.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+            else if (step.includes("treatment started.")) {
+                newFrame.treatment_status = "(started)";
+            }
+            else if (step.includes("treatment complete.")) {
+                newFrame.treatment_status = "(complete)";
+            }
+            else if (step.includes("Specialist enters treatment room.")) {
+                newFrame.treatment_specialist = "Specialist";
+            }
+            else if (step.includes("Specialist leaves treatment room.")) {
+                newFrame.treatment_specialist = null;
+            }
+            else if (step.includes("leaves treatment room.")) {
+                newFrame.wait_discharge_transfers.push(new Transfer(
+                    newFrame.treatment_patient,
+                    newFrame.treatment_nurse,
+                    newFrame.treatment_orderlies
+                ));
+
+                newFrame.treatment_status = null;
+                newFrame.treatment_patient = null;
+                newFrame.treatment_nurse = null;
+                newFrame.treatment_orderlies = null;
+            }
+            else if (step.includes(" enters Foyer.")) {
+                var patient = step.substring(0, step.indexOf(" enters Foyer."));
+
+                for (var i=0; i<newFrame.wait_discharge_transfers.length; i++) {
+                    if(newFrame.wait_discharge_transfers[i].patient === patient) {
+                        newFrame.discharge_patient = newFrame.wait_discharge_transfers[i].patient;
+                        newFrame.discharge_nurse = newFrame.wait_discharge_transfers[i].nurse;
+                        newFrame.discharge_orderlies = newFrame.wait_discharge_transfers[i].orderlies;
+
+                        newFrame.wait_discharge_transfers.splice(i, 1);
+                        break;
+                    }
+                }
+            }
+            else if (step.includes("releases") && step.includes("orderlies") == false) {
+                var nurse = step.substring(0, step.indexOf(" releases"));
+
+                newFrame.available_nurses.push(nurse);
+                newFrame.discharge_nurse = null;
+            }
+            else if (step.includes("discharged from ED.")) {
+                newFrame.discharge_patient = null;
+            }
+        }
+
+        function draw_frame() {
+            var curr_frame = frames[curr_step];
+
+            $("#admission_patient").html(curr_frame.admission_patient ? curr_frame.admission_patient : "<span>&nbsp;</span>");
+            $("#admission_nurse").html(curr_frame.admission_nurse ? curr_frame.admission_nurse : "<span>&nbsp;</span>");
+            $("#admission_orderlies").html(curr_frame.admission_orderlies ? curr_frame.admission_orderlies : "<span>&nbsp;</span>");
+
+            $('#wait_triage_count').html(curr_frame.wait_triage_transfers.length > 0 ? curr_frame.wait_triage_transfers.length : "<span>&nbsp;</span>");
+
+            $("#triage_patient").html(curr_frame.triage_patient ? curr_frame.triage_patient : "<span>&nbsp;</span>");
+            $("#triage_nurse").html(curr_frame.triage_nurse ? curr_frame.triage_nurse : "<span>&nbsp;</span>");
+            $("#triage_orderlies").html(curr_frame.triage_orderlies ? curr_frame.triage_orderlies : "<span>&nbsp;</span>");
+
+            $('#wait_treatment_count').html(curr_frame.wait_treatment_transfers.length > 0 ? curr_frame.wait_treatment_transfers.length : "<span>&nbsp;</span>");
+
+            $("#treatment_status").html(curr_frame.treatment_status ? curr_frame.treatment_status : "<span>&nbsp;</span>");
+            $("#treatment_specialist").html(curr_frame.treatment_specialist ? curr_frame.treatment_specialist : "<span>&nbsp;</span>");
+            $("#treatment_patient").html(curr_frame.treatment_patient ? curr_frame.treatment_patient : "<span>&nbsp;</span>");
+            $("#treatment_nurse").html(curr_frame.treatment_nurse ? curr_frame.treatment_nurse : "<span>&nbsp;</span>");
+            $("#treatment_orderlies").html(curr_frame.treatment_orderlies ? curr_frame.treatment_orderlies : "<span>&nbsp;</span>");
+
+            $('#wait_discharge_count').html(curr_frame.wait_discharge_transfers.length > 0 ? curr_frame.wait_discharge_transfers.length : "<span>&nbsp;</span>");
+
+            $("#discharge_patient").html(curr_frame.discharge_patient ? curr_frame.discharge_patient : "<span>&nbsp;</span>");
+            $("#discharge_nurse").html(curr_frame.discharge_nurse ? curr_frame.discharge_nurse : "<span>&nbsp;</span>");
+            $("#discharge_orderlies").html(curr_frame.discharge_orderlies ? curr_frame.discharge_orderlies : "<span>&nbsp;</span>");
+
+            $("#wait_triage_table").empty();
+            for (var i=0; i<curr_frame.wait_triage_transfers.length; i++) {
+                var transfer = curr_frame.wait_triage_transfers[i];
+                $("#wait_triage_table").append(`<tr><td>${transfer.patient}, ${transfer.nurse}, ${transfer.orderlies}</td></tr>`);
+            }
+
+            $("#wait_treatment_table").empty();
+            for (var i=0; i<curr_frame.wait_treatment_transfers.length; i++) {
+                var transfer = curr_frame.wait_treatment_transfers[i];
+                $("#wait_treatment_table").append(`<tr><td>${transfer.patient}, ${transfer.nurse}, ${transfer.orderlies}</td></tr>`);
+            }
+
+            $("#wait_discharge_table").empty();
+            for (var i=0; i<curr_frame.wait_discharge_transfers.length; i++) {
+                var transfer = curr_frame.wait_discharge_transfers[i];
+                $("#wait_discharge_table").append(`<tr><td>${transfer.patient}, ${transfer.nurse}, ${transfer.orderlies}</td></tr>`);
+            }
+
+            $("#nurses_table").empty();
+            curr_frame.available_nurses.sort();
+            for (var i=0; i<curr_frame.available_nurses.length; i++) {
+                var nurse = curr_frame.available_nurses[i];
+                $("#nurses_table").append(`<tr><td>${nurse}</td></tr>`);
+            }
+
+            $('#orderlies_count').html(curr_frame.available_orderlies);
+        }
+
+        function help() {
+            alert(
+                "This tool is not written for robustness so it expects your trace to follow the exact format below, "
+                + "including the capitalisation, whitespaces and periods at the end.\n\n"
+                + "Sample trace:\n"
+                + "- Patient 1 (S) admitted to ED.\n"
+                + "- Patient 1 (S) allocated to Nurse 1.\n"
+                + "- Nurse 1 recruits 3 orderlies (8 free).\n"
+                + "- Patient 1 (S) leaves Foyer.\n"
+                + "- Patient 1 enters triage.\n"
+                + "- Nurse 1 releases 3 orderlies (8 free).\n"
+                + "- Patient 1 leaves triage.\n"
+                + "- Patient 1 enters treatment room.\n"
+                + "- Specialist enters treatment room.\n"
+                + "- Patient 1 treatment started.\n"
+                + "- Patient 1 treatment complete.\n"
+                + "- Specialist leaves treatment room.\n"
+                + "- Patient 2 (S) enters Foyer.\n"
+                + "- Nurse 3 releases Patient 2.\n"
+                + "- Patient 2 (S) discharged from ED."
+            );
+        }
+    </script>
+
+    <body>
+        <table>
+            <tr>
+                <td>
+                    <div>
+                        <div><strong>Instructions</strong> (<span onclick="help();" style="color: blue; text-decoration: underline; cursor: pointer;">help</span>)</div>
+                        <ol style="width: 300px">
+                            <li>Initialise the params and trace below</li>
+                            <li>Click the Start button</li>
+                            <li>Click the Prev and Next buttons to step through the simulation</li>
+                        </ol>
+                    </div>
+                    <div>
+                        <span>Initial nurses count</span>
+                        <input type="number" id="initial_nurse_input" value="4" />
+                    </div>
+
+                    <div>
+                        <span>Initial orderlies count</span>
+                        <input type="number" id="initial_orderlies_input" value="10" />
+                    </div>
+
+                    <div>
+                        <span>Orderlies per transfer</span>
+                        <input type="number" id="transfer_orderlies_input" value="3" />
+                    </div>
+
+                    <div>
+                        <span>Input trace below</span>
+                        <button onclick="on_start();">Start</button>
+                    </div>
+
+                    <textarea id="trace_textarea" cols="40" rows="30">
+Patient 1 (S) admitted to ED.
+Patient 1 (S) allocated to Nurse 1.
+Nurse 1 recruits 3 orderlies (7 free).
+Patient 1 (S) leaves Foyer.
+Patient 2 admitted to ED.
+Patient 2 allocated to Nurse 3.
+Nurse 3 recruits 3 orderlies (4 free).
+Specialist enters treatment room.
+Patient 2 leaves Foyer.
+Patient 1 (S) enters triage.
+Nurse 1 releases 3 orderlies (7 free).
+Nurse 1 recruits 3 orderlies (4 free).
+Patient 1 (S) leaves triage.
+Patient 2 enters triage.
+Nurse 3 releases 3 orderlies (7 free).
+Patient 1 (S) enters treatment room.
+Nurse 1 releases 3 orderlies (10 free).
+Nurse 3 recruits 3 orderlies (7 free).
+Patient 1 treatment started.
+Patient 2 leaves triage.
+Patient 2 enters Foyer.
+Nurse 3 releases 3 orderlies (10 free).
+Patient 1 (S) treatment complete.
+Specialist leaves treatment room.
+Nurse 3 releases Patient 2.
+Patient 2 discharged from ED.
+Nurse 1 recruits 3 orderlies (7 free).
+Patient 1 (S) leaves treatment room.
+Patient 1 (S) enters Foyer.
+Nurse 1 releases 3 orderlies (10 free).
+Nurse 1 releases Patient 1 (S).
+Patient 1 (S) discharged from ED.
+Patient 3 (S) admitted to ED.
+Patient 3 (S) allocated to Nurse 4.
+Nurse 4 recruits 3 orderlies (7 free).
+                    </textarea>
+                </td>
+
+                <td>
+                    <div>
+                        <span>Steps</span>
+                        <button id="prev_button" onclick="on_prev();" disabled="true">prev</button>
+                        <button id="next_button" onclick="on_next();" disabled="true">next</button>
+                    </div>
+                    <div style="overflow-y: auto; height: calc(100vh - 50px);">
+                        <table id="step_table" border="1""></table>
+                    </div>
+                </td>
+
+                <td>
+                    <table>
+                        <tr>
+                            <td>
+                                <div>Foyer</div>
+                                <table>
+                                    <tr>
+                                        <td>
+                                            <table class="bordered-table station-width">
+                                                <tr><td>admission</td></tr>
+                                                <tr><td id="admission_patient">&nbsp;</td></tr>
+                                                <tr><td id="admission_nurse">&nbsp;</td></tr>
+                                                <tr><td id="admission_orderlies">&nbsp;</td></tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                    <tr>
+                                        <td>
+                                            <table class="bordered-table station-width">
+                                                <tr><td>discharge</td></tr>
+                                                <tr><td id="discharge_patient">&nbsp;</td></tr>
+                                                <tr><td id="discharge_nurse">&nbsp;</td></tr>
+                                                <tr><td id="discharge_orderlies">&nbsp;</td></tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+
+                            <td>&nbsp;</td>
+                            <td>
+                                <table>
+                                    <tr>
+                                        <td>
+                                            <div>Waiting for triage</div>
+                                            <table>
+                                                <tr><td>&nbsp;</td></tr>
+                                                <tr><td id="wait_triage_count">&nbsp;</td></tr>
+                                                <tr><td>&nbsp;</td></tr>
+                                                <tr><td>&nbsp;</td></tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+
+                                    <tr>
+                                        <td>
+                                            <div>Waiting for discharge</div>
+                                            <table>
+                                                <tr><td>&nbsp;</td></tr>
+                                                <tr><td id="wait_discharge_count">&nbsp;</td></tr>
+                                                <tr><td>&nbsp;</td></tr>
+                                                <tr><td>&nbsp;</td></tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                            <td>&nbsp;</td>
+
+                            <td>
+                                <div>Triage</div>
+                                <table id="triage_table" class="bordered-table station-width">
+                                    <tr><td>&nbsp;</td></tr>
+                                    <tr><td id="triage_patient">&nbsp;</td></tr>
+                                    <tr><td id="triage_nurse">&nbsp;</td></tr>
+                                    <tr><td id="triage_orderlies">&nbsp;</td></tr>
+                                </table>
+                            </td>
+
+                            <td>&nbsp;</td>
+                            <td>
+                                <table>
+                                    <tr>
+                                        <td>
+                                            <div>Waiting for treatment</div>
+                                            <div id="wait_treatment_count" class="station-width">&nbsp;</div>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                            <td>&nbsp;</td>
+
+                            <td>
+                                <div>Treatment <span id="treatment_status"></span></div>
+                                <table id="treatment_table" class="bordered-table station-width">
+                                    <tr><td id="treatment_specialist">&nbsp;</td></tr>
+                                    <tr><td id="treatment_patient">&nbsp;</td></tr>
+                                    <tr><td id="treatment_nurse">&nbsp;</td></tr>
+                                    <tr><td id="treatment_orderlies">&nbsp;</td></tr>
+                                </table>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td colspan="3">
+                                <div>Waiting for triage</div>
+                                <table id="wait_triage_table" class="bordered-table">
+                                    <tr><td>&nbsp;</td></tr>
+                                </table>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td colspan="3">
+                                <div>Waiting for treatment</div>
+                                <table id="wait_treatment_table" class="bordered-table">
+                                    <tr><td>&nbsp;</td></tr>
+                                </table>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td colspan="3">
+                                <div>Waiting for discharge</div>
+                                <table id="wait_discharge_table" class="bordered-table">
+                                    <tr><td>&nbsp;</td></tr>
+                                </table>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td>
+                                <div>Nurses</div>
+                                <table id="nurses_table" class="bordered-table">
+                                    <tr><td>&nbsp;</td></tr>
+                                </table>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <td>
+                                <div>Orderlies</div>
+                                <div id="orderlies_count">0</div>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
