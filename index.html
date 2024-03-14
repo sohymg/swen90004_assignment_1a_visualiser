@@ -106,12 +106,13 @@
 
         var curr_step = 0;
         var transfer_orderlies_count = 0;
+        var initial_orderlies_count = 0;
         var frames = [];
         var steps = [];
 
         function on_start() {
             var initial_nurse_count = parseInt($('#initial_nurse_input').val(), 10);
-            var initial_orderlies_count = parseInt($('#initial_orderlies_input').val(), 10);
+            initial_orderlies_count = parseInt($('#initial_orderlies_input').val(), 10);
             transfer_orderlies_count = parseInt($('#transfer_orderlies_input').val(), 10);
             frames = [];
 
@@ -180,9 +181,16 @@
             validate_prev_next_buttons();
         }
 
+        function on_auto() {
+            while (curr_step < steps.length) {
+                on_next();
+            }
+        }
+
         function validate_prev_next_buttons() {
             $("#prev_button").prop('disabled', curr_step == 0);
             $("#next_button").prop('disabled', curr_step >= steps.length);
+            $("#auto_button").prop('disabled', curr_step >= steps.length);
         }
 
         function createFrameFromStep(step_number) {
@@ -191,21 +199,43 @@
             frames.push(newFrame);
 
             if (step.includes("admitted to ED.")) {
+                if (newFrame.admission_patient != null) {
+                    alert(`Step: ${step}\n\nA patient already exists in ED.`);
+                    return false;
+                }
+
                 newFrame.admission_patient = step.substring(0, step.indexOf(" admitted to ED."));
             }
             else if (step.includes("allocated to")) {
+                if (newFrame.admission_nurse != null) {
+                    alert(`Step: ${step}\n\nPatient is already allocated.`);
+                    return false;
+                }
+
                 var nurse = step.substring(step.indexOf("allocated to ") + "allocated to ".length);
                 nurse = nurse.substring(0, nurse.length - 1);
                 newFrame.admission_nurse = nurse;
 
+                var found = false;
                 for (var i=0; i<newFrame.available_nurses.length; i++) {
                     if(newFrame.available_nurses[i] === nurse) {
                         newFrame.available_nurses.splice(i, 1);
+                        found = true;
                         break;
                     }
                 }
+
+                if (found == false) {
+                    alert(`Step: ${step}\n\nNurse could not be found.`);
+                    return false;
+                }
             }
             else if (step.includes("recruits")) {
+                if (newFrame.available_orderlies - transfer_orderlies_count < 0) {
+                    alert(`Step: ${step}\n\nInsufficient orderlies for recruitment`);
+                    return false;
+                }
+
                 var nurse = step.substring(0, step.indexOf(" recruits"));
                 var orderlies = `Ord x ${transfer_orderlies_count}`;
 
@@ -215,10 +245,28 @@
                     newFrame.triage_orderlies = orderlies;
                 else if (newFrame.treatment_nurse === nurse)
                     newFrame.treatment_orderlies = orderlies;
+                else {
+                    alert(`Step: ${step}\n\nRecruiting nurse could not be found.`);
+                    return false;
+                }
 
                 newFrame.available_orderlies -= transfer_orderlies_count;
             }
             else if (step.includes("leaves Foyer")) {
+                if (newFrame.admission_patient == null || newFrame.admission_nurse == null || newFrame.admission_orderlies == null) {
+                    alert(`Step: ${step}\n\nPatient/nurse/orderlies not found to leave foyer`);
+                    return false;
+                }
+
+                for (var i=0; i<newFrame.wait_triage_transfers.length; i++) {
+                    if (newFrame.wait_triage_transfers[i].patient == newFrame.admission_patient ||
+                        newFrame.wait_triage_transfers[i].nurse == newFrame.admission_nurse) {
+
+                        alert(`Step: ${step}\n\nPatient/nurse/orderlies already exist waiting in triage`);
+                        return false;
+                    }
+                }
+
                 newFrame.wait_triage_transfers.push(new Transfer(
                     newFrame.admission_patient,
                     newFrame.admission_nurse,
@@ -230,8 +278,14 @@
                 newFrame.admission_orderlies = null;
             }
             else if (step.includes("enters triage")) {
+                if (newFrame.triage_patient != null || newFrame.triage_nurse != null || newFrame.triage_orderlies != null) {
+                    alert(`Step: ${step}\n\ntriage is already full`);
+                    return false;
+                }
+
                 var patient = step.substring(0, step.indexOf(" enters triage"));
 
+                var found = false;
                 for (var i=0; i<newFrame.wait_triage_transfers.length; i++) {
                     if(newFrame.wait_triage_transfers[i].patient === patient) {
                         newFrame.triage_patient = newFrame.wait_triage_transfers[i].patient;
@@ -239,36 +293,76 @@
                         newFrame.triage_orderlies = newFrame.wait_triage_transfers[i].orderlies;
 
                         newFrame.wait_triage_transfers.splice(i, 1);
+                        found = true;
                         break;
                     }
                 }
+
+                if (found == false) {
+                    alert(`Step: ${step}\n\nPatient could not be found in waiting for triage.`);
+                    return false;
+                }
             }
             else if (step.includes("releases") && step.includes("orderlies")) {
+                if (newFrame.available_orderlies + transfer_orderlies_count > initial_orderlies_count) {
+                    alert(`Step: ${step}\n\nToo many orderlies`);
+                    return false;
+                }
+
                 var nurse = step.substring(0, step.indexOf(" releases"));
 
-                if (newFrame.triage_nurse === nurse)
+                if (newFrame.triage_nurse === nurse) {
+                    if (newFrame.triage_orderlies == null) {
+                        alert(`Step: ${step}\n\nOrderlies already released.`);
+                        return false;
+                    }
                     newFrame.triage_orderlies = null;
-                else if (newFrame.treatment_nurse === nurse)
+                }
+                else if (newFrame.treatment_nurse === nurse) {
+                    if (newFrame.treatment_orderlies == null) {
+                        alert(`Step: ${step}\n\nOrderlies already released.`);
+                        return false;
+                    }
                     newFrame.treatment_orderlies = null;
-                else if (newFrame.discharge_nurse === nurse)
+                }
+                else if (newFrame.discharge_nurse === nurse) {
+                    if (newFrame.discharge_orderlies == null) {
+                        alert(`Step: ${step}\n\nOrderlies already released.`);
+                        return false;
+                    }
                     newFrame.discharge_orderlies = null;
+                }
+                else {
+                    alert(`Step: ${step}\n\nReleasing nurse could not be found.`);
+                    return false;
+                }
 
                 newFrame.available_orderlies += transfer_orderlies_count;
             }
-            else if (step.includes("recruits")) {
-                var nurse = step.substring(0, step.indexOf(" recruits"));
-                var orderlies = `Ord x ${transfer_orderlies_count}`;
-
-                if (newFrame.admission_nurse === nurse)
-                    newFrame.admission_orderlies = orderlies;
-                else if (newFrame.triage_nurse === nurse)
-                    newFrame.triage_orderlies = orderlies;
-                else if (newFrame.treatment_nurse === nurse)
-                    newFrame.treatment_orderlies = orderlies;
-
-                newFrame.available_orderlies -= transfer_orderlies_count;
-            }
             else if (step.includes("leaves triage")) {
+                if (newFrame.triage_patient == null || newFrame.triage_nurse == null || newFrame.triage_orderlies == null) {
+                    alert(`Step: ${step}\n\nPatient/nurse/orderlies not found to leave triage`);
+                    return false;
+                }
+
+                for (var i=0; i<newFrame.wait_treatment_transfers.length; i++) {
+                    if (newFrame.wait_treatment_transfers[i].patient == newFrame.triage_patient ||
+                        newFrame.wait_treatment_transfers[i].nurse == newFrame.triage_nurse) {
+
+                        alert(`Step: ${step}\n\nPatient/nurse/orderlies already exist waiting for treatment`);
+                        return false;
+                    }
+                }
+
+                for (var i=0; i<newFrame.wait_discharge_transfers.length; i++) {
+                    if (newFrame.wait_discharge_transfers[i].patient == newFrame.triage_patient ||
+                        newFrame.wait_discharge_transfers[i].nurse == newFrame.triage_nurse) {
+
+                        alert(`Step: ${step}\n\nPatient/nurse/orderlies already exist waiting for discharge`);
+                        return false;
+                    }
+                }
+
                 if (step.includes("(S)")) {
                     newFrame.wait_treatment_transfers.push(new Transfer(
                         newFrame.triage_patient,
@@ -289,8 +383,14 @@
                 newFrame.triage_orderlies = null;
             }
             else if (step.includes(" enters treatment room.") && step.includes("Specialist") == false) {
+                if (newFrame.treatment_patient != null || newFrame.treatment_nurse != null || newFrame.treatment_orderlies != null) {
+                    alert(`Step: ${step}\n\nTreatment room is full`);
+                    return false;
+                }
+
                 var patient = step.substring(0, step.indexOf(" enters treatment room."));
 
+                var found = false;
                 for (var i=0; i<newFrame.wait_treatment_transfers.length; i++) {
                     if(newFrame.wait_treatment_transfers[i].patient === patient) {
                         newFrame.treatment_patient = newFrame.wait_treatment_transfers[i].patient;
@@ -298,23 +398,68 @@
                         newFrame.treatment_orderlies = newFrame.wait_treatment_transfers[i].orderlies;
 
                         newFrame.wait_treatment_transfers.splice(i, 1);
+                        found = true;
                         break;
                     }
                 }
+
+                if (found == false) {
+                    alert(`Step: ${step}\n\nPatient cannot be found from waiting for treatment`);
+                    return false;
+                }
             }
             else if (step.includes("treatment started.")) {
+                if (newFrame.treatment_status != null || newFrame.treatment_specialist == null) {
+                    alert(`Step: ${step}\n\nWrong treatment start status or missing specialist`);
+                    return false;
+                }
+
                 newFrame.treatment_status = "(started)";
             }
             else if (step.includes("treatment complete.")) {
+                if (newFrame.treatment_status != "(started)" || newFrame.treatment_specialist == null) {
+                    alert(`Step: ${step}\n\nWrong treatment complete status or missing specialist`);
+                    return false;
+                }
+
                 newFrame.treatment_status = "(complete)";
             }
             else if (step.includes("Specialist enters treatment room.")) {
+                if (newFrame.treatment_specialist != null) {
+                    alert(`Step: ${step}\n\nSpecialist is already in treatment room`);
+                    return false;
+                }
+
                 newFrame.treatment_specialist = "Specialist";
             }
             else if (step.includes("Specialist leaves treatment room.")) {
+                if (newFrame.treatment_specialist == null || newFrame.treatment_status != "(complete)") {
+                    alert(`Step: ${step}\n\nSpecialist was not in treatment room or wrong treatment status`);
+                    return false;
+                }
+
                 newFrame.treatment_specialist = null;
             }
             else if (step.includes("leaves treatment room.")) {
+                if (newFrame.treatment_patient == null || newFrame.treatment_nurse == null || newFrame.treatment_orderlies == null) {
+                    alert(`Step: ${step}\n\nPatient/nurse/orderlies not found in treatment room`);
+                    return false;
+                }
+
+                if (newFrame.treatment_status != "(complete)") {
+                    alert(`Step: ${step}\n\nTreatment not completed`);
+                    return false;
+                }
+
+                for (var i=0; i<newFrame.wait_discharge_transfers.length; i++) {
+                    if (newFrame.wait_discharge_transfers[i].patient == newFrame.treatment_patient ||
+                        newFrame.wait_discharge_transfers[i].nurse == newFrame.treatment_nurse) {
+
+                        alert(`Step: ${step}\n\nPatient/nurse/orderlies already exist waiting for discharge`);
+                        return false;
+                    }
+                }
+
                 newFrame.wait_discharge_transfers.push(new Transfer(
                     newFrame.treatment_patient,
                     newFrame.treatment_nurse,
@@ -327,8 +472,14 @@
                 newFrame.treatment_orderlies = null;
             }
             else if (step.includes(" enters Foyer.")) {
+                if (newFrame.discharge_patient != null || newFrame.discharge_nurse != null || newFrame.discharge_orderlies != null) {
+                    alert(`Step: ${step}\n\nPatient/nurse/orderlies already exist in Foyer`);
+                    return false;
+                }
+
                 var patient = step.substring(0, step.indexOf(" enters Foyer."));
 
+                var found = false;
                 for (var i=0; i<newFrame.wait_discharge_transfers.length; i++) {
                     if(newFrame.wait_discharge_transfers[i].patient === patient) {
                         newFrame.discharge_patient = newFrame.wait_discharge_transfers[i].patient;
@@ -336,19 +487,48 @@
                         newFrame.discharge_orderlies = newFrame.wait_discharge_transfers[i].orderlies;
 
                         newFrame.wait_discharge_transfers.splice(i, 1);
+                        found = true;
                         break;
                     }
+                }
+
+                if (found == false) {
+                    alert(`Step: ${step}\n\nPatient could not be found`);
+                    return false;
                 }
             }
             else if (step.includes("releases") && step.includes("orderlies") == false) {
                 var nurse = step.substring(0, step.indexOf(" releases"));
 
+                if (newFrame.discharge_patient == null || newFrame.discharge_nurse == null || newFrame.discharge_orderlies != null) {
+                    alert(`Step: ${step}\n\nNurse could not be released`);
+                    return false;
+                }
+
+                for (var i=0; i<newFrame.available_nurses.length; i++) {
+                    if (newFrame.available_nurses[i] == nurse) {
+                        alert(`Step: ${step}\n\nNurse already released`);
+                        return false;
+                    }
+                }
+
                 newFrame.available_nurses.push(nurse);
                 newFrame.discharge_nurse = null;
             }
             else if (step.includes("discharged from ED.")) {
+                if (newFrame.discharge_patient == null) {
+                    alert(`Step: ${step}\n\nNo patient to discharge`);
+                    return false;
+                }
+
                 newFrame.discharge_patient = null;
             }
+            else {
+                alert(`Step: ${step}\n\nUnknown step!`);
+                return false;
+            }
+
+            return true;
         }
 
         function draw_frame() {
@@ -506,6 +686,7 @@ Nurse 4 recruits 3 orderlies (7 free).
                         <span>Steps</span>
                         <button id="prev_button" onclick="on_prev();" disabled="true">prev</button>
                         <button id="next_button" onclick="on_next();" disabled="true">next</button>
+                        <button id="auto_button" onclick="on_auto();" disabled="true">auto</button>
                     </div>
                     <div style="overflow-y: auto; height: calc(100vh - 50px);">
                         <table id="step_table" border="1""></table>
